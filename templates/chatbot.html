@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PI Assistant Chatbot</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom scrollbar for chat history */
+        #chatHistory::-webkit-scrollbar { width: 8px; }
+        #chatHistory::-webkit-scrollbar-thumb { background: #9ca3af; /* coolGray-400 */ border-radius: 4px; }
+        #chatHistory::-webkit-scrollbar-track { background: #f3f4f6; /* coolGray-100 */ }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-4 sm:p-8 flex items-center justify-center font-sans">
+
+    <div id="chatbot-container" class="w-full max-w-xl bg-white shadow-2xl rounded-xl p-6 md:p-8 border border-gray-200 flex flex-col h-[80vh]">
+
+        <div class="flex justify-between items-center mb-6 border-b pb-4">
+            <h1 class="text-2xl font-extrabold text-purple-700">
+                🧠 PI Assistant Chatbot
+            </h1>
+            <a href="/" class="text-sm font-medium text-blue-600 hover:text-blue-800 transition duration-150 ease-in-out">
+                ← Back to Calculator
+            </a>
+        </div>
+
+        <div id="chatHistory" class="flex-grow overflow-y-auto space-y-4 p-4 mb-6 bg-gray-50 rounded-lg border border-gray-200">
+            <div class="flex justify-start">
+                <div class="max-w-xs md:max-w-md bg-purple-100 p-3 rounded-xl rounded-tl-none shadow-sm">
+                    <p class="font-bold text-purple-800">PI Assistant</p>
+                    <p class="text-gray-800">Hello! I can help you analyze the average prices of items. Ask me any question, like: **"Which location has the most expensive 'Cream' in the 'kg' unit?"**</p>
+                </div>
+            </div>
+            </div>
+
+        <div class="flex items-center">
+            <input
+                type="text"
+                id="userInput"
+                placeholder="Ask your question about the prices..."
+                class="flex-grow p-3 border border-gray-300 rounded-l-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-base"
+                onkeypress="if(event.keyCode === 13) document.getElementById('sendButton').click()"
+            >
+            <button
+                id="sendButton"
+                onclick="sendMessage()"
+                class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-r-lg disabled:bg-purple-400 transition duration-150"
+            >
+                Send
+            </button>
+        </div>
+
+    </div>
+
+    <script>
+        const chatHistory = document.getElementById('chatHistory');
+        const userInput = document.getElementById('userInput');
+        const sendButton = document.getElementById('sendButton');
+
+        // Function to scroll chat to the bottom
+        const scrollToBottom = () => {
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        };
+
+        // Function to append a message to the chat history
+        const appendMessage = (sender, message, isBot = false) => {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `flex ${isBot ? 'justify-start' : 'justify-end'}`;
+
+            const messageBubble = document.createElement('div');
+            messageBubble.className = `max-w-xs md:max-w-md p-3 rounded-xl shadow-md ${isBot 
+                ? 'bg-purple-100 rounded-tl-none' 
+                : 'bg-blue-600 text-white rounded-br-none'}`;
+            
+            // Allow basic markdown like **bold** in the bot's response
+            if (isBot) {
+                 const formattedMessage = message.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                 messageBubble.innerHTML = `
+                    <p class="font-bold ${isBot ? 'text-purple-800' : 'text-white'}">${sender}</p>
+                    <p class="text-gray-800">${formattedMessage}</p>
+                `;
+            } else {
+                 messageBubble.innerHTML = `<p>${message}</p>`;
+            }
+
+            messageDiv.appendChild(messageBubble);
+            chatHistory.appendChild(messageDiv);
+            scrollToBottom();
+        };
+
+        const sendMessage = async () => {
+            const prompt = userInput.value.trim();
+            if (prompt === "") return;
+
+            // 1. Display user message
+            appendMessage('You', prompt, false);
+            userInput.value = '';
+            
+            // 2. Disable input/button and show loading
+            sendButton.disabled = true;
+            sendButton.textContent = '...Thinking';
+            
+            // Create a loading indicator message
+            const loadingId = 'loading-' + Date.now();
+            appendMessage('PI Assistant', '<div class="flex items-center space-x-2 text-gray-700"><svg class="animate-spin h-5 w-5 text-purple-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Analyzing Data...</div>', true);
+            
+            const loadingElement = chatHistory.lastChild.querySelector('.text-gray-800');
+
+            try {
+                // 3. Call the backend API
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ prompt: prompt }),
+                });
+
+                const data = await response.json();
+                
+                // 4. Remove loading indicator and display the bot's response
+                chatHistory.removeChild(chatHistory.lastChild); // Remove loading message
+                appendMessage('PI Assistant', data.response, true);
+
+            } catch (error) {
+                console.error('Error fetching chat response:', error);
+                chatHistory.removeChild(chatHistory.lastChild); // Remove loading message
+                appendMessage('PI Assistant', 'An error occurred while connecting to the AI service. Please check the server logs.', true);
+            } finally {
+                // 5. Re-enable input/button
+                sendButton.disabled = false;
+                sendButton.textContent = 'Send';
+            }
+        };
+
+        // Scroll to the bottom on load to see the initial message
+        window.onload = scrollToBottom;
+    </script>
+</body>
+</html>

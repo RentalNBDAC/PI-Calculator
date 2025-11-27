@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PI Budget Calculator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom scrollbar for better aesthetics */
+        #itemList::-webkit-scrollbar, #selectedItemsList::-webkit-scrollbar, #chatHistory::-webkit-scrollbar {
+            width: 8px;
+        }
+        #itemList::-webkit-scrollbar-thumb, #selectedItemsList::-webkit-scrollbar-thumb, #chatHistory::-webkit-scrollbar-thumb {
+            background: #cbd5e1; /* coolGray-300 */
+            border-radius: 4px;
+        }
+        #itemList::-webkit-scrollbar-track, #selectedItemsList::-webkit-scrollbar-track, #chatHistory::-webkit-scrollbar-track {
+            background: #f1f5f9; /* coolGray-100 */
+        }
+
+        /* --- KEY CHANGES FOR BOTTOM-RIGHT WIDGET --- */
+
+        /* Floating Button position */
+        #piAssistantButton {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        /* Chat Widget position and size: Positioned 100px from the bottom to sit ABOVE the button */
+        #chatWidget {
+            position: fixed;
+            bottom: 100px; /* Adjusted to sit just above the button */
+            right: 20px;
+            width: 350px; /* Fixed width */
+            height: 450px; /* Fixed height for a classic pop-up chat box */
+            z-index: 999;
+            display: none; /* Initially hidden */
+            transition: opacity 0.3s, transform 0.3s;
+        }
+        /* --------------------------------------------- */
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen p-4 sm:p-8 flex items-start justify-center font-sans">
+
+    <div id="app" class="w-full max-w-2xl bg-white shadow-2xl rounded-xl p-6 md:p-10 border border-gray-100">
+
+        <h1 class="text-3xl font-extrabold text-blue-800 mb-6 text-center">
+            Price Intelligent (PI) Budget Calculator
+        </h1>
+
+        <div class="mb-6 p-4 bg-blue-50 rounded-lg shadow-inner">
+            <label for="budgetInput" class="block text-sm font-semibold text-blue-700 mb-2">
+                Your Budget (Target Max Value):
+            </label>
+            <div class="flex items-center">
+                <span class="text-xl font-bold text-gray-600 mr-2">RM</span>
+                <input
+                    type="number"
+                    id="budgetInput"
+                    placeholder="Enter budget value"
+                    min="0"
+                    step="0.01"
+                    class="flex-grow p-3 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xl font-mono transition duration-150"
+                    oninput="calculateTotal()"
+                >
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 mb-8">
+            <div>
+                <label for="locationSelect" class="block text-sm font-semibold text-gray-700 mb-2">
+                    Select Location:
+                </label>
+                <select id="locationSelect" onchange="filterItems()" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base">
+                    </select>
+            </div>
+            <div>
+                <label for="unitSelect" class="block text-sm font-semibold text-gray-700 mb-2">
+                    Select Unit:
+                </label>
+                <select id="unitSelect" onchange="filterItems()" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base">
+                    </select>
+            </div>
+        </div>
+
+        <h2 class="text-xl font-bold text-gray-700 mb-4">
+            🛒 Your Current Selection
+        </h2>
+
+        <div id="selectedItemsList" class="space-y-2 mb-8 max-h-48 overflow-y-auto p-4 border-2 border-green-300 rounded-lg bg-green-50">
+            <p class="text-center text-gray-500 italic" id="selectedItemsPlaceholder">No items selected yet.</p>
+        </div>
+        
+        <h2 class="text-xl font-bold text-gray-700 mb-4">
+            Available Items (Average Price)
+        </h2>
+
+        <div id="itemList" class="space-y-2 max-h-96 overflow-y-auto p-4 border border-gray-200 rounded-lg bg-white">
+            <p class="text-center text-gray-500">Loading items...</p>
+        </div>
+
+        <div class="mt-8 pt-6 border-t-4 border-blue-500 rounded-b-lg">
+            <div class="flex justify-between items-center mb-4">
+                <span class="text-lg font-bold text-gray-700">Total Sum of Selected Items:</span>
+                <span id="totalSum" class="text-3xl font-extrabold text-green-600">RM 0.00</span>
+            </div>
+
+            <div id="statusMessage" class="p-3 text-center rounded-lg font-semibold transition-all duration-300 ease-in-out hidden">
+                </div>
+
+            <button id="finalTotalDisplay"
+                class="w-full text-center py-4 rounded-xl text-white font-bold text-xl shadow-lg cursor-default transition duration-300 bg-blue-600 hover:bg-blue-700 opacity-90"
+                disabled
+            >
+                Total: RM 0.00
+            </button>
+        </div>
+
+    </div>
+
+    <button id="piAssistantButton" onclick="toggleChatWidget()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-full shadow-xl transition duration-300 ease-in-out transform hover:scale-105">
+        🧠 PI Assistant
+    </button>
+
+    <div id="chatWidget" class="flex flex-col bg-white rounded-xl shadow-2xl border border-gray-300 overflow-hidden">
+        <div class="bg-purple-600 text-white p-3 flex justify-between items-center shadow-md">
+            <h3 class="text-lg font-bold">PI Assistant</h3>
+            <button onclick="toggleChatWidget()" class="text-white hover:text-gray-200">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+        <div id="chatHistory" class="flex-grow overflow-y-auto space-y-4 p-4 bg-gray-50">
+            <div class="flex justify-start">
+                <div class="max-w-xs bg-purple-100 p-3 rounded-xl rounded-tl-none shadow-sm text-sm">
+                    <p class="font-bold text-purple-800">PI Assistant</p>
+                    <p class="text-gray-800">Hello! Ask me to analyze the price data, like: **"Which item is the most expensive overall?"**</p>
+                </div>
+            </div>
+        </div>
+        <div class="p-3 border-t border-gray-300">
+            <div class="flex items-center">
+                <input
+                    type="text"
+                    id="chatInput"
+                    placeholder="Type a question..."
+                    class="flex-grow p-2 border border-gray-300 rounded-l-lg focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                    onkeypress="if(event.keyCode === 13) document.getElementById('chatSendButton').click()"
+                >
+                <button
+                    id="chatSendButton"
+                    onclick="sendMessage()"
+                    class="bg-purple-600 hover:bg-purple-700 text-white font-bold p-2 rounded-r-lg disabled:bg-purple-400 transition duration-150 text-sm"
+                >
+                    Send
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DATA INJECTION FROM FLASK ---
+        const itemData = {{ item_data | tojson | safe }};
+        const locations = {{ locations | tojson | safe }};
+        const units = {{ units | tojson | safe }};
+        // ---------------------------------
+
+        // DOM Elements for Calculator
+        const itemList = document.getElementById('itemList');
+        const budgetInput = document.getElementById('budgetInput');
+        const totalSumDisplay = document.getElementById('totalSum');
+        const finalTotalDisplay = document.getElementById('finalTotalDisplay');
+        const statusMessage = document.getElementById('statusMessage');
+        const selectedItemsList = document.getElementById('selectedItemsList');
+        const selectedItemsPlaceholder = document.getElementById('selectedItemsPlaceholder');
+        const locationSelect = document.getElementById('locationSelect');
+        const unitSelect = document.getElementById('unitSelect');
+        
+        // NEW: DOM Elements for Chat Widget
+        const chatWidget = document.getElementById('chatWidget');
+        const chatHistory = document.getElementById('chatHistory');
+        const chatInput = document.getElementById('chatInput');
+        const chatSendButton = document.getElementById('chatSendButton');
+
+
+        // --- CALCULATOR LOGIC (Standard, No Change) ---
+
+        const formatCurrency = (value) => `RM ${value.toFixed(2)}`;
+
+        function populateDropdown(selectElement, options) {
+            selectElement.innerHTML = '';
+            options.forEach(option => {
+                const opt = document.createElement('option');
+                opt.value = option;
+                opt.textContent = option;
+                selectElement.appendChild(opt);
+            });
+            if (options.length > 0) {
+                 selectElement.value = options[0];
+            }
+        }
+
+        function filterItems() {
+            const allCheckboxes = itemList.querySelectorAll('input[type="checkbox"]');
+            allCheckboxes.forEach(checkbox => checkbox.checked = false);
+
+            const selectedLocation = locationSelect.value;
+            const selectedUnit = unitSelect.value;
+            
+            const filteredData = itemData.filter(item => 
+                item.location === selectedLocation && item.unit === selectedUnit
+            );
+
+            renderItemList(filteredData);
+            calculateTotal();
+        }
+
+
+        function renderItemList(data) {
+            itemList.innerHTML = '';
+            if (data.length === 0) {
+                itemList.innerHTML = '<p class="text-center text-red-500 font-semibold">No items available for this Location/Unit combination.</p>';
+                return;
+            }
+
+            data.forEach((item, index) => {
+                const listItem = document.createElement('div');
+                listItem.className = 'flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-100 transition duration-100';
+                const itemId = `${item.location}-${item.unit}-${item.name.replace(/\s/g, '_')}`; 
+                const itemPrice = parseFloat(item.price);
+
+                listItem.innerHTML = `
+                    <div class="flex items-center flex-grow">
+                        <input type="checkbox"
+                            id="${itemId}"
+                            data-price="${itemPrice}"
+                            data-name="${item.name}"
+                            data-location="${item.location}"
+                            data-unit="${item.unit}"
+                            onchange="calculateTotal()"
+                            class="h-5 w-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer">
+                        <label for="${itemId}" class="ml-3 text-base font-medium text-gray-700 flex-grow cursor-pointer">
+                            ${item.name}
+                        </label>
+                    </div>
+                    <span class="text-base font-bold text-gray-900 ml-4">${formatCurrency(itemPrice)}</span>
+                `;
+                itemList.appendChild(listItem);
+            });
+        }
+
+        function calculateTotal() {
+            const budget = parseFloat(budgetInput.value) || 0;
+            let currentTotal = 0;
+            const checkboxes = itemList.querySelectorAll('input[type="checkbox"]');
+            let selectedItemsHtml = []; 
+
+            checkboxes.forEach(checkbox => {
+                const itemPrice = parseFloat(checkbox.dataset.price);
+                const itemName = checkbox.dataset.name;
+
+                if (checkbox.checked) {
+                    currentTotal += itemPrice;
+                    selectedItemsHtml.push(`
+                        <div class="flex justify-between items-center text-sm font-medium text-green-800 p-2 border-b border-green-200 last:border-b-0">
+                            <span>${itemName}</span>
+                            <span class="font-bold">${formatCurrency(itemPrice)}</span>
+                        </div>
+                    `);
+                }
+            });
+
+            if (selectedItemsHtml.length > 0) {
+                selectedItemsList.innerHTML = selectedItemsHtml.join('');
+                selectedItemsPlaceholder.classList.add('hidden');
+            } else {
+                selectedItemsList.innerHTML = '';
+                selectedItemsList.appendChild(selectedItemsPlaceholder);
+                selectedItemsPlaceholder.classList.remove('hidden');
+            }
+
+            totalSumDisplay.textContent = formatCurrency(currentTotal);
+            finalTotalDisplay.textContent = `Total: ${formatCurrency(currentTotal)}`;
+
+            const isOverBudget = currentTotal > budget && budget > 0;
+            const isBudgetReached = currentTotal >= budget && budget > 0;
+            const isBudgetValid = budget > 0;
+            const isTotalValid = currentTotal > 0;
+
+            statusMessage.classList.add('hidden');
+            statusMessage.className = 'p-3 text-center rounded-lg font-semibold transition-all duration-300 ease-in-out';
+            finalTotalDisplay.classList.remove('bg-blue-600', 'bg-red-600', 'bg-green-600');
+            finalTotalDisplay.classList.add('bg-blue-600'); 
+
+            if (isBudgetValid) {
+                if (isOverBudget) {
+                    statusMessage.textContent = `🚨 WARNING: Total (RM ${currentTotal.toFixed(2)}) Exceeds Budget!`;
+                    statusMessage.classList.remove('hidden');
+                    statusMessage.classList.add('bg-red-100', 'text-red-700', 'shadow-md');
+                    finalTotalDisplay.classList.remove('bg-blue-600');
+                    finalTotalDisplay.classList.add('bg-red-600');
+                } else if (isBudgetReached) {
+                    statusMessage.textContent = `✅ Budget Reached: Selection is complete!`;
+                    statusMessage.classList.remove('hidden');
+                    statusMessage.classList.add('bg-green-100', 'text-green-700', 'shadow-md');
+                    finalTotalDisplay.classList.remove('bg-blue-600');
+                    finalTotalDisplay.classList.add('bg-green-600');
+                } else if (isTotalValid) {
+                    const remaining = budget - currentTotal;
+                    statusMessage.textContent = `Budget Remaining: ${formatCurrency(remaining)}`;
+                    statusMessage.classList.remove('hidden');
+                    statusMessage.classList.add('bg-yellow-100', 'text-yellow-700', 'shadow-md');
+                }
+            }
+
+            checkboxes.forEach(checkbox => {
+                const itemPrice = parseFloat(checkbox.dataset.price);
+
+                if (!checkbox.checked) {
+                    const shouldDisable = (currentTotal + itemPrice > budget && budget > 0);
+
+                    if (shouldDisable) {
+                        checkbox.disabled = true;
+                        checkbox.parentNode.parentNode.classList.add('opacity-50');
+                    } else {
+                        checkbox.disabled = false;
+                        checkbox.parentNode.parentNode.classList.remove('opacity-50');
+                    }
+                } else {
+                    checkbox.disabled = false;
+                    checkbox.parentNode.parentNode.classList.remove('opacity-50');
+                }
+            });
+        }
+
+        // --- CHAT WIDGET LOGIC (No Change, but optimized for new CSS) ---
+
+        function toggleChatWidget() {
+            const isHidden = chatWidget.style.display === 'none' || chatWidget.style.display === '';
+            if (isHidden) {
+                chatWidget.style.display = 'flex';
+                chatInput.focus(); // Focus input when opening
+                scrollToBottom();
+            } else {
+                chatWidget.style.display = 'none';
+            }
+        }
+        
+        const scrollToBottom = () => {
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        };
+
+        const appendMessage = (sender, message, isBot = false) => {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `flex ${isBot ? 'justify-start' : 'justify-end'}`;
+
+            const messageBubble = document.createElement('div');
+            messageBubble.className = `max-w-xs p-3 rounded-xl shadow-md text-sm ${isBot 
+                ? 'bg-purple-100 rounded-tl-none' 
+                : 'bg-blue-600 text-white rounded-br-none'}`;
+            
+            const formattedMessage = message.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            
+            messageBubble.innerHTML = `
+                <p class="font-bold ${isBot ? 'text-purple-800' : 'text-white'}">${sender}</p>
+                <p class="${isBot ? 'text-gray-800' : 'text-white'}">${formattedMessage}</p>
+            `;
+
+            messageDiv.appendChild(messageBubble);
+            chatHistory.appendChild(messageDiv);
+            scrollToBottom();
+            return messageDiv;
+        };
+
+        const sendMessage = async () => {
+            const prompt = chatInput.value.trim();
+            if (prompt === "") return;
+
+            appendMessage('You', prompt, false);
+            chatInput.value = '';
+            
+            chatSendButton.disabled = true;
+            chatSendButton.textContent = '...';
+            
+            const loadingMessage = appendMessage('PI Assistant', '<div class="flex items-center space-x-2 text-gray-700"><svg class="animate-spin h-4 w-4 text-purple-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Analyzing...</div>', true);
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: prompt }),
+                });
+
+                const data = await response.json();
+                
+                chatHistory.removeChild(loadingMessage);
+                appendMessage('PI Assistant', data.response, true);
+
+            } catch (error) {
+                console.error('Error fetching chat response:', error);
+                chatHistory.removeChild(loadingMessage);
+                appendMessage('PI Assistant', 'An error occurred while connecting to the AI service. Please check the server logs.', true);
+            } finally {
+                chatSendButton.disabled = false;
+                chatSendButton.textContent = 'Send';
+            }
+        };
+
+        // Initial setup
+        window.onload = () => {
+            populateDropdown(locationSelect, locations);
+            populateDropdown(unitSelect, units);
+            filterItems(); 
+            chatWidget.style.display = 'none';
+        };
+    </script>
+</body>
+</html>
