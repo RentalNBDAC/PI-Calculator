@@ -9,16 +9,45 @@ import numpy as np
 # For security, you should set this as an environment variable (e.g., in .env)
 # But for a simple demo, you can replace 'YOUR_API_KEY' with your actual key string.
 # The code will first try to use the GEMINI_API_KEY environment variable.
-API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyBB1sm7BT1WnpkbwHlqehp4I3ADNrLv83s")
-if API_KEY == "AIzaSyBB1sm7BT1WnpkbwHlqehp4I3ADNrLv83s":
-    print("WARNING: Using placeholder API key. Set the GEMINI_API_KEY environment variable or replace the placeholder in app.py.")
+#API_KEY = os.getenv("GEMINI_API_KEY", "YOUR_GEMINI_API_KEY")
+#if API_KEY == "YOUR_GEMINI_API_KEY":
+    #print("WARNING: Using placeholder API key. Set the GEMINI_API_KEY environment variable or replace the placeholder in app.py.")
 # ---------------------------------------------
 
-# Constants for column names
+# --- ⚠️ IMPORTANT: Set your Gemini API Key ---
+API_KEY = os.getenv("GEMINI_API_KEY") # 1. Try environment variable first
+
+if not API_KEY:
+    # 2. If environment variable is not set, try reading from a local file
+    try:
+        with open('secret_key.txt', 'r') as f:
+            # Read the first line and strip any whitespace/newlines
+            API_KEY = f.readline().strip()
+        print("INFO: API key loaded successfully from secret_key.txt.")
+    except FileNotFoundError:
+        print("ERROR: API key not found in GEMINI_API_KEY environment variable or secret_key.txt.")
+        API_KEY = None  # Ensure API_KEY is None if load fails
+
+# Check if the key is loaded before proceeding
+if not API_KEY:
+    print("FATAL ERROR: Gemini API key is missing. The PI Assistant will not work.")
+    # Use a dummy client to prevent crash, but operations will fail later
+    gemini_client = None 
+else:
+    # Initialize the Gemini Client only if the key is present
+    try:
+        gemini_client = genai.Client(api_key=API_KEY)
+    except Exception as e:
+        print(f"Error initializing Gemini client: {e}")
+        gemini_client = None
+# ---------------------------------------------
+
+# Constants for column names (Assuming 'category' column exists in your raw data)
 COL_ITEM_NAME = 'subsubcategory'
 COL_PRICE = 'avg_price'
 COL_LOCATION = 'location'
 COL_UNIT = 'unit_raw' 
+COL_CATEGORY = 'category' # NEW: Assuming a 'category' column exists for grouping
 
 app = Flask(__name__)
 
@@ -36,15 +65,17 @@ def load_item_data():
     try:
         df = pd.read_parquet(parquet_path)
 
-        # Drop rows where the item name (subsubcategory) is missing or empty/NaN.
-        df.dropna(subset=[COL_ITEM_NAME, COL_LOCATION, COL_UNIT, COL_PRICE], inplace=True)
+        # Drop rows where the item name, location, unit, category, or price is missing
+        df.dropna(subset=[COL_ITEM_NAME, COL_LOCATION, COL_UNIT, COL_CATEGORY, COL_PRICE], inplace=True)
         df = df[df[COL_ITEM_NAME].astype(str).str.strip() != '']
+        df = df[df[COL_CATEGORY].astype(str).str.strip() != ''] # Ensure category is not empty
 
-        # Group by location, unit, and item name, then calculate the average price
-        grouped_df = df.groupby([COL_LOCATION, COL_UNIT, COL_ITEM_NAME])[COL_PRICE].mean().reset_index()
+        # Group by location, unit, category, and item name, then calculate the average price
+        # UPDATED: Added COL_CATEGORY to the grouping
+        grouped_df = df.groupby([COL_LOCATION, COL_UNIT, COL_CATEGORY, COL_ITEM_NAME])[COL_PRICE].mean().reset_index()
 
         # Standardize names for JavaScript
-        grouped_df.columns = ['location', 'unit', 'name', 'price']
+        grouped_df.columns = ['location', 'unit', 'category', 'name', 'price']
         
         # Format the price to two decimal places for cleaner output
         grouped_df['price'] = grouped_df['price'].round(2)
@@ -52,25 +83,27 @@ def load_item_data():
         # Extract unique lists for dropdowns
         unique_locations = sorted(grouped_df['location'].unique().tolist())
         unique_units = sorted(grouped_df['unit'].unique().tolist())
+        unique_categories = sorted(grouped_df['category'].unique().tolist()) # NEW: Unique categories
         
         # Convert aggregated data to a list of dictionaries
         item_data_list = grouped_df.to_dict('records')
 
         print(f"Successfully loaded {len(item_data_list)} unique item combinations from Parquet.")
-        return item_data_list, unique_locations, unique_units
+        return item_data_list, unique_locations, unique_units, unique_categories # UPDATED: Return categories
 
     except FileNotFoundError:
         print(f"Error: Parquet file not found at {parquet_path}. Using empty data.")
-        return [], [], []
+        return [], [], [], []
     except KeyError as e:
         print(f"Error: Missing column in Parquet file. Details: {e}. Using empty data.")
-        return [], [], []
+        return [], [], [], []
     except Exception as e:
         print(f"An unexpected error occurred while loading data: {e}. Using empty data.")
-        return [], [], []
+        return [], [], [], []
 
 # Load data once when the app starts.
-PI_DATA, UNIQUE_LOCATIONS, UNIQUE_UNITS = load_item_data()
+# UPDATED: Unpack the new return value
+PI_DATA, UNIQUE_LOCATIONS, UNIQUE_UNITS, UNIQUE_CATEGORIES = load_item_data()
 
 
 @app.route('/')
@@ -81,7 +114,8 @@ def index():
         'index.html', 
         item_data=PI_DATA, 
         locations=UNIQUE_LOCATIONS, 
-        units=UNIQUE_UNITS
+        units=UNIQUE_UNITS,
+        categories=UNIQUE_CATEGORIES # NEW: Pass categories to template
     )
 
 @app.route('/chatbot')
@@ -101,14 +135,14 @@ def chat_api():
         return jsonify({'response': "No prompt provided."}), 400
 
     # Convert the list of item dictionaries to a string format that Gemini can easily parse and reason over.
-    # Using JSON string is highly effective for grounding the model in specific data.
+    # We still use PI_DATA which now includes the 'category' field.
     item_data_json = pd.DataFrame(PI_DATA).to_json(orient='records')
     
     # 1. Define the System Instruction for context and role
     system_instruction = (
         "You are an expert Price Intelligent (PI) assistant. Your task is to analyze the provided "
-        "JSON data containing item names, locations, units, and average prices in RM, and answer "
-        f"the user's question based *only* on this data. The data has {len(PI_DATA)} entries."
+        "JSON data containing item names, locations, units, categories, and average prices in RM, and answer "
+        "the user's question based *only* on this data. The data has {len(PI_DATA)} entries."
         "Provide specific item names, prices, locations, and units from the data to support your answer. "
         "Do not invent information. Format the final response clearly, using bold text for key results."
     )
